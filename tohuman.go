@@ -7,7 +7,7 @@ package teltonikaparser
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"sync"
 
 	"github.com/filipkroca/b2n"
 	"github.com/filipkroca/teltonikaparser/teltonikajson"
@@ -21,6 +21,8 @@ type HAvlData struct {
 
 // HumanDecoder is responsible for decoding
 type HumanDecoder struct {
+	once     sync.Once
+	loadErr  error
 	elements map[string]map[uint16]AvlEncodeKey
 }
 
@@ -42,9 +44,8 @@ type AvlEncodeKey struct {
 
 // Human takes a pointer to Element, device type ["FMBXY", "FM64", "FM36", "FM11XY"] and return a pointer to decoding key
 func (h *HumanDecoder) Human(el *Element, device string) (*HAvlData, error) {
-	//init decoding key
-	if len(h.elements) == 0 {
-		h.loadElements()
+	if err := h.loadElements(); err != nil {
+		return nil, err
 	}
 
 	// check if Element is valid
@@ -68,9 +69,8 @@ func (h *HumanDecoder) Human(el *Element, device string) (*HAvlData, error) {
 
 // AvlDataToHuman takes a pointer to a slice of AvlData and return a slice with data
 func (h *HumanDecoder) AvlDataToHuman(data *[]AvlData) ([][][]string, error) {
-	//init decoding key
-	if len(h.elements) == 0 {
-		h.loadElements()
+	if err := h.loadElements(); err != nil {
+		return nil, err
 	}
 
 	codec := "FMBXY"
@@ -85,7 +85,7 @@ autoDecode:
 			// decode to human readable format
 			decoded, err := h.Human(&ioel, codec)
 			if err != nil {
-				log.Panicf("Error when converting human, %v\n", err)
+				return nil, fmt.Errorf("converting to human: %w", err)
 			}
 
 			// get final decoded value to value which is specified in ./teltonikajson/ in paramether FinalConversion
@@ -109,48 +109,34 @@ autoDecode:
 	return output, nil
 }
 
-// loadElements parses ./decoding/.. into slice
-func (h *HumanDecoder) loadElements() {
-	// make map
+func (h *HumanDecoder) loadElements() error {
+	h.once.Do(func() {
+		h.loadErr = h.parseElements()
+	})
+	return h.loadErr
+}
+
+func (h *HumanDecoder) parseElements() error {
 	h.elements = make(map[string]map[uint16]AvlEncodeKey)
 
-	// read our opened json as a byte array.
-	byteValue := []byte(teltonikajson.FMBXY)
-	fmbxy := make(map[uint16]AvlEncodeKey)
-	//h.elements["FMBXY"] = make(map[uint16]AvlEncodeKey)
-	err := json.Unmarshal(byteValue, &fmbxy)
-	if err != nil {
-		log.Panic(err)
+	families := []struct {
+		name string
+		raw  string
+	}{
+		{"FMBXY", teltonikajson.FMBXY},
+		{"FM64", teltonikajson.FM64},
+		{"FM36", teltonikajson.FM36},
+		{"FM11XY", teltonikajson.FM11XY},
 	}
-	h.elements["FMBXY"] = fmbxy
 
-	// read our opened json as a byte array.
-	byteValue = []byte(teltonikajson.FM64)
-	fm64 := make(map[uint16]AvlEncodeKey)
-	err = json.Unmarshal(byteValue, &fm64)
-	if err != nil {
-		log.Panic(err)
+	for _, family := range families {
+		parsed := make(map[uint16]AvlEncodeKey)
+		if err := json.Unmarshal([]byte(family.raw), &parsed); err != nil {
+			return fmt.Errorf("parse AVL map %s: %w", family.name, err)
+		}
+		h.elements[family.name] = parsed
 	}
-	h.elements["FM64"] = fm64
-
-	// read our opened json as a byte array.
-	byteValue = []byte(teltonikajson.FM36)
-	fm36 := make(map[uint16]AvlEncodeKey)
-	err = json.Unmarshal(byteValue, &fm36)
-	if err != nil {
-		log.Panic(err)
-	}
-	h.elements["FM36"] = fm36
-
-	// read our opened json as a byte array.
-	byteValue = []byte(teltonikajson.FM11XY)
-	fm11XY := make(map[uint16]AvlEncodeKey)
-	err = json.Unmarshal(byteValue, &fm11XY)
-	if err != nil {
-		log.Panic(err)
-	}
-	h.elements["FM11XY"] = fm11XY
-
+	return nil
 }
 
 // GetFinalValue return decimal value, if necesarry with float, return should be empty interface because there is many values to return

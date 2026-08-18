@@ -10,8 +10,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/basvdlei/gotsmart/crc16"
-	"unsafe"
 )
 
 const (
@@ -123,7 +121,7 @@ func EncodeCommandRequest(command string) ([]byte, error) {
 	// Calculate CRC by my own and check if it is equal to the got CRC
 	raw := buffer.Bytes()
 	d := raw[8 : len(raw)-4] // drop first 8 bytes and last 4 bytes and calculate CRC for it
-	crc := uint32(crc16.Checksum(d))
+	crc := uint32(crc16IBM(d))
 
 	buffer = new(bytes.Buffer)
 	_, err = buffer.Write(raw[:len(raw)-4])
@@ -140,6 +138,9 @@ func EncodeCommandRequest(command string) ([]byte, error) {
 
 func DecodeCommandRequest(rawCommand *[]byte) (CommandRequest, error) {
 	var decoded CommandRequest
+	if rawCommand == nil || len(*rawCommand) < 12 {
+		return decoded, fmt.Errorf("command request too short")
+	}
 
 	reader := bytes.NewReader(*rawCommand)
 
@@ -168,7 +169,7 @@ func DecodeCommandRequest(rawCommand *[]byte) (CommandRequest, error) {
 
 	// Calculate CRC by my own and check if it is equal to the got CRC
 	d := (*rawCommand)[8 : len(*rawCommand)-4] // drop first 8 bytes and last 4 bytes and calculate CRC
-	crc := crc16.Checksum(d)
+	crc := crc16IBM(d)
 
 	expected := decoded.CRC
 	if uint32(crc) != expected {
@@ -180,10 +181,14 @@ func DecodeCommandRequest(rawCommand *[]byte) (CommandRequest, error) {
 
 func DecodeCommandResponse(rawResponse *[]byte) (CommandResponse, error) {
 	var decoded CommandResponse
+	if rawResponse == nil {
+		return decoded, fmt.Errorf("nil command response")
+	}
 
 	reader := bytes.NewReader(*rawResponse)
 
-	const minSize = int(unsafe.Sizeof(decoded.commandResponsePre))
+	// Wire size of commandResponsePre: 4+4+1+1+1+4. Do not use unsafe.Sizeof; that includes Go padding.
+	const minSize = 15
 	if len(*rawResponse) < minSize {
 		return decoded, fmt.Errorf("only %d bytes received. Probably not a teltonika command response packet", len(*rawResponse))
 	}
@@ -221,7 +226,7 @@ func DecodeCommandResponse(rawResponse *[]byte) (CommandResponse, error) {
 
 	// Calculate CRC by my own and check if it is equal to the got CRC
 	d := (*rawResponse)[8 : len(*rawResponse)-4] // drop first 8 bytes and last 4 bytes and calculate CRC
-	calculatedCrc := crc16.Checksum(d)
+	calculatedCrc := crc16IBM(d)
 
 	expected := decoded.CRC
 	if uint32(calculatedCrc) != expected {
