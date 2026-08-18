@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package teltonikaparser is an implementation of https://wiki.teltonika.lt/view/Codec Codec08 and Codec08Extended for UDP packets in GO Lang
-// implemented https://wiki.teltonika.lt/view/Codec#Codec_8
-// implemented https://wiki.teltonika.lt/view/Codec#Codec_8_Extended
+// Package teltonikaparser implements Teltonika Codec 8 and Codec 8 Extended for UDP packets.
+// Codec 12 command encoding lives in commands.go.
+// Spec: https://wiki.teltonika-gps.com/view/Codec
 package teltonikaparser
 
 import (
@@ -19,7 +19,7 @@ type Decoded struct {
 	CodecID  byte      // 0x08 (codec 8) or 0x8E (codec 8 extended)
 	NoOfData uint8     // Number of Data
 	Data     []AvlData // Slice with avl data
-	Response []byte 	 // Slice with a response
+	Response []byte    // Slice with a response
 }
 
 // AvlData represent one block of data
@@ -132,7 +132,7 @@ func Decode(bs *[]byte) (Decoded, error) {
 			return Decoded{}, fmt.Errorf("Decode error, %v", err)
 		}
 		if !(decodedData.Lng > -1800000000 && decodedData.Lng < 1800000000) {
-			return Decoded{}, fmt.Errorf("Invalid Lat value, want lat > -1800000000 AND lat < 1800000000, got %v", decodedData.Lng)
+			return Decoded{}, fmt.Errorf("Invalid Lng value, want lng > -1800000000 AND lng < 1800000000, got %v", decodedData.Lng)
 		}
 		nextByte += 4
 
@@ -214,7 +214,11 @@ func Decode(bs *[]byte) (Decoded, error) {
 		return Decoded{}, fmt.Errorf("Error when counting number of parsed data, want %v, got %v", int(decoded.NoOfData), len(decoded.Data))
 	}
 
-	// check if packet was corretly parsed
+	if nextByte >= len(*bs) {
+		return Decoded{}, fmt.Errorf("packet truncated: missing trailing number of data")
+	}
+
+	// check if packet was correctly parsed
 	endNoOfData := (*bs)[nextByte]
 	if decoded.NoOfData != endNoOfData {
 		return Decoded{}, fmt.Errorf("Unexpected byte representing control num. of data on end of parsing, want %#x, got %#x", decoded.NoOfData, endNoOfData)

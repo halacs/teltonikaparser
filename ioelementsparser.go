@@ -237,7 +237,12 @@ func cutIOxLen(bs *[]byte, start int) (Element, error) {
 		return Element{}, fmt.Errorf("cutIOxLen error, %v", err)
 	}
 
-	curIO.Value = (*bs)[start+4 : start+4+int(curIO.Length)]
+	end := start + 4 + int(curIO.Length)
+	if start < 0 || end > len(*bs) {
+		return Element{}, fmt.Errorf("cutIOxLen error, want minimum length of bs %v, got %v", end, len(*bs))
+	}
+
+	curIO.Value = (*bs)[start+4 : end]
 
 	return curIO, nil
 }
